@@ -1,10 +1,10 @@
 from typing import Any, Dict, List
 
-from .types import AgentAction, AgentObservation, EnvStep, JointState
+from argusorch.env.types import AgentAction, AgentObservation, EnvStep, JointState
 
 
 class MultiAgentTextEnv:
-    def __init__(self, num_agents: int, max_turns: int):
+    def __init__(self, num_agents: int, max_turns: int) -> None:
         self.num_agents = num_agents
         self.max_turns = max_turns
         self.current_turn = 0

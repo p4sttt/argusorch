@@ -1,14 +1,16 @@
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List
 
+from argusorch.env.types import AgentAction, AgentObservation
+
 
 @dataclass
 class Transition:
-    obs: Any
-    action: Any
+    obs: AgentObservation
+    action: AgentAction
     reward: float
     value: float
-    next_obs: Any
+    next_obs: AgentObservation
     done: bool
 
     advantage: float = 0.0
@@ -21,11 +23,11 @@ class MultiAgentTrajectory:
 
     def add(
         self,
-        observations: Dict[str, Any],
-        actions: Dict[str, Any],
+        observations: Dict[str, AgentObservation],
+        actions: Dict[str, AgentAction],
         reward: float,
         value: float,
-        next_observations: Dict[str, Any],
+        next_observations: Dict[str, AgentObservation],
         done: bool,
     ) -> None:
         for agent_id, obs in observations.items():
