@@ -1,21 +1,22 @@
-from typings import List
+from typing import List
 
-from argusorch.env import AgentActions, AgentObservation, PolicyEval
+from argusorch.env import AgentAction, AgentObservation
 
 from .llm_actor import LLMActor
+from .types import PolicyEval
 
 
 class AgentsGroup:
     def __init__(self, actors: List[LLMActor]):
         self.actors = actors
 
-    def act(self, obs: List[AgentObservation]) -> List[AgentActions]:
+    def act(self, obs: List[AgentObservation]) -> List[AgentAction]:
         return [actor.act(obs) for actor, obs in zip(self.actors, obs)]
 
     def evaluate_actions(
-        self, obs: List[AgentObservation], acts: List[AgentActions]
+        self, obs: List[AgentObservation], acts: List[AgentAction]
     ) -> List[PolicyEval]:
         return [
-            actor.evaluate_actions(obs, act)
-            for actor, obs, act in zip(self.actors, obs, acts)
+            actor.evaluate_action(o, a)
+            for actor, o, a in zip(self.actors, obs, acts)
         ]
