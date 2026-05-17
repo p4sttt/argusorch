@@ -2,12 +2,12 @@ from typing import List
 
 from argusorch.env import AgentAction, AgentObservation
 
-from .llm_actor import LLMActor
-from .types import PolicyEval
+from argusorch.agents.llm_actor import LLMActor
+from argusorch.agents.types import PolicyEval
 
 
 class AgentsGroup:
-    def __init__(self, actors: List[LLMActor]):
+    def __init__(self, actors: List[LLMActor]) -> None:
         self.actors = actors
 
     def act(self, obs: List[AgentObservation]) -> List[AgentAction]:
@@ -17,6 +17,5 @@ class AgentsGroup:
         self, obs: List[AgentObservation], acts: List[AgentAction]
     ) -> List[PolicyEval]:
         return [
-            actor.evaluate_action(o, a)
-            for actor, o, a in zip(self.actors, obs, acts)
+            actor.evaluate_action(o, a) for actor, o, a in zip(self.actors, obs, acts)
         ]

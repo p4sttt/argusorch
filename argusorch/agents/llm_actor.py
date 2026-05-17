@@ -1,10 +1,16 @@
-from argusorch.env import AgentAction, AgentObservation
-from .types import PolicyEval
+from typing import Any, Dict
+
 import torch
+import torch.nn as nn
+
+from argusorch.env import AgentAction, AgentObservation
+from argusorch.agents.types import PolicyEval
 
 
 class LLMActor:
-    def __init__(self, model, tokenizer, generation_config):
+    def __init__(
+        self, model: nn.Module, tokenizer: Any, generation_config: Dict[str, Any]
+    ) -> None:
         self.model = model
         self.tokenizer = tokenizer
         self.generation_config = generation_config
