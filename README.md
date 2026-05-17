@@ -14,5 +14,3 @@ pip install -re .
 # install dependencies using uv
 uv sync
 ```
-
-## Features
