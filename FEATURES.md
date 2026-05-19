@@ -26,9 +26,9 @@
   - Добавлено клиппирование градиентов (Gradient Clipping).
   - Интеграция с PEFT/LoRA для эффективного дообучения LLM-весов (применено в examples).
 - [x] **Сбор траекторий (Rollout Buffer):** Накопление данных в `ReplayBuffer` и формирование батчей `TrainingBatch` для On-Policy RL апдейтов.
+- [x] **Мониторинг метрик:** Интеграция `ConsoleLogger` и `WandbLogger` для отслеживания TD-Error, Critic Loss, Policy Loss, Policy Entropy и других метрик в реальном времени.
 
 ## 🔄 В процессе (In Progress)
 
 ## 📝 Осталось реализовать (To Do)
 
-- [ ] **Мониторинг метрик:** Логирование TD-Error, Critic Loss, Policy Loss и Policy Entropy для отладки.

@@ -14,9 +14,11 @@ class RolloutCollector:
         self.actors = actors
         self.critic = critic
 
-    def collect(self, item: Dict[str, Any]) -> MultiAgentTrajectory:
+    def collect(self, item: Dict[str, Any]) -> tuple[MultiAgentTrajectory, Dict[str, float]]:
         observations = self.env.reset(item)
         trajectory = MultiAgentTrajectory()
+        total_reward = 0.0
+        steps_count = 0
 
         while True:
             joint_state = self.env.joint_state()
@@ -27,6 +29,8 @@ class RolloutCollector:
             actions = {obs.agent_id: act for obs, act in zip(obs_list, actions_list)}
 
             step = self.env.step(actions)
+            total_reward += step.reward
+            steps_count += 1
 
             trajectory.add(
                 observations=observations,
@@ -42,4 +46,8 @@ class RolloutCollector:
 
             observations = step.next_observations
 
-        return trajectory
+        metrics = {
+            "reward": total_reward,
+            "episode_length": float(steps_count)
+        }
+        return trajectory, metrics

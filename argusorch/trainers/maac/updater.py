@@ -25,7 +25,11 @@ class MAACUpdater:
         self.loss = loss
         self.ppo_epochs = ppo_epochs
 
-    def update(self, batch: TrainingBatch) -> None:
+    def update(self, batch: TrainingBatch) -> Dict[str, float]:
+        metrics = {}
+        total_critic_loss = 0.0
+        total_actor_losses = {agent_id: 0.0 for agent_id in batch.agent_ids()}
+
         for _ in range(self.ppo_epochs):
             for agent_id in batch.agent_ids():
                 actor_eval = self.actors[agent_id].evaluate_action(
@@ -45,6 +49,7 @@ class MAACUpdater:
                     self.actors[agent_id].model.parameters(), max_norm=1.0
                 )
                 self.actor_optimizers[agent_id].step()
+                total_actor_losses[agent_id] += loss_a.item()
 
             critic_eval = self.critic.evaluate_states(batch.joint_states)
             loss_c = self.loss.critic_loss(
@@ -56,3 +61,10 @@ class MAACUpdater:
             loss_c.backward()
             torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1.0)
             self.critic_optimizer.step()
+            total_critic_loss += loss_c.item()
+
+        metrics["critic_loss"] = total_critic_loss / self.ppo_epochs
+        for agent_id in batch.agent_ids():
+            metrics[f"actor_loss_{agent_id}"] = total_actor_losses[agent_id] / self.ppo_epochs
+
+        return metrics
