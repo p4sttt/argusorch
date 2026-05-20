@@ -1,7 +1,7 @@
-from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List
+from dataclasses import dataclass, field
+from typing import Dict, Iterable, List, Optional
 
-from argusorch.env.types import AgentAction, AgentObservation
+from argusorch.env.types import AgentAction, AgentObservation, JointState
 
 
 @dataclass
@@ -9,16 +9,17 @@ class Transition:
     obs: AgentObservation
     action: AgentAction
     reward: float
-    value: float
+    value: float  # scalar float — result of critic.forward_value()
     next_obs: AgentObservation
     done: bool
+    joint_state: Optional[JointState] = field(default=None)
 
     advantage: float = 0.0
     value_target: float = 0.0
 
 
 class MultiAgentTrajectory:
-    def __init__(self):
+    def __init__(self) -> None:
         self._agent_trajectories: Dict[str, List[Transition]] = {}
 
     def add(
@@ -29,6 +30,7 @@ class MultiAgentTrajectory:
         value: float,
         next_observations: Dict[str, AgentObservation],
         done: bool,
+        joint_state: Optional[JointState] = None,
     ) -> None:
         for agent_id, obs in observations.items():
             if agent_id not in self._agent_trajectories:
@@ -41,6 +43,7 @@ class MultiAgentTrajectory:
                 value=value,
                 next_obs=next_observations[agent_id],
                 done=done,
+                joint_state=joint_state,
             )
             self._agent_trajectories[agent_id].append(transition)
 

@@ -22,7 +22,13 @@ class RolloutCollector:
 
         while True:
             joint_state = self.env.joint_state()
-            value = self.critic.evaluate_state(joint_state)
+            value_pred = self.critic.evaluate_state(joint_state)
+            # Извлекаем скаляр: ValuePrediction.values может быть Tensor или float
+            value_scalar: float = (
+                value_pred.values.item()
+                if hasattr(value_pred.values, "item")
+                else float(value_pred.values)
+            )
 
             obs_list = list(observations.values())
             actions_list = self.actors.act(obs_list)
@@ -36,9 +42,10 @@ class RolloutCollector:
                 observations=observations,
                 actions=actions,
                 reward=step.reward,
-                value=value,
+                value=value_scalar,
                 next_observations=step.next_observations,
                 done=step.done,
+                joint_state=joint_state,
             )
 
             if step.done:
@@ -48,6 +55,6 @@ class RolloutCollector:
 
         metrics = {
             "reward": total_reward,
-            "episode_length": float(steps_count)
+            "episode_length": float(steps_count),
         }
         return trajectory, metrics

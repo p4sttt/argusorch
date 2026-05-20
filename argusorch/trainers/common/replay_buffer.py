@@ -7,8 +7,9 @@ from argusorch.env.trajectory import MultiAgentTrajectory
 
 
 class ReplayBuffer:
-    def __init__(self, capacity: int) -> None:
+    def __init__(self, capacity: int, device: Optional[torch.device] = None) -> None:
         self.capacity = capacity
+        self.device = device or torch.device("cpu")
         self.trajectories: List[MultiAgentTrajectory] = []
 
     def add(
@@ -22,7 +23,7 @@ class ReplayBuffer:
         return len(self.trajectories) >= self.capacity
 
     def sample(self) -> TrainingBatch:
-        agent_ids = list(self.trajectories[0].agent_trajectories.keys())
+        agent_ids = list(self.trajectories[0]._agent_trajectories.keys())
 
         obs_dict = {a_id: [] for a_id in agent_ids}
         act_dict = {a_id: [] for a_id in agent_ids}
@@ -34,22 +35,30 @@ class ReplayBuffer:
 
         for traj in self.trajectories:
             first_agent = agent_ids[0]
-            for trans in traj.agent_trajectories[first_agent]:
-                joint_states.append(trans.joint_state)
+            for trans in traj._agent_trajectories[first_agent]:
+                if trans.joint_state is not None:
+                    joint_states.append(trans.joint_state)
                 value_targets.append(trans.value_target)
 
             for a_id in agent_ids:
-                for trans in traj.agent_trajectories[a_id]:
-                    obs_dict[a_id].append(trans.observation)
+                for trans in traj._agent_trajectories[a_id]:
+                    obs_dict[a_id].append(trans.obs)
                     act_dict[a_id].append(trans.action)
                     logprobs_dict[a_id].append(trans.action.logprob)
                     adv_dict[a_id].append(trans.advantage)
 
+        # Создаём тензоры сразу на нужном устройстве — устраняет device-mismatch в loss
         for a_id in agent_ids:
-            logprobs_dict[a_id] = torch.tensor(logprobs_dict[a_id], dtype=torch.float32)
-            adv_dict[a_id] = torch.tensor(adv_dict[a_id], dtype=torch.float32)
+            logprobs_dict[a_id] = torch.tensor(
+                logprobs_dict[a_id], dtype=torch.float32, device=self.device
+            )
+            adv_dict[a_id] = torch.tensor(
+                adv_dict[a_id], dtype=torch.float32, device=self.device
+            )
 
-        value_targets_tensor = torch.tensor(value_targets, dtype=torch.float32)
+        value_targets_tensor = torch.tensor(
+            value_targets, dtype=torch.float32, device=self.device
+        )
 
         self.trajectories = []
 
@@ -62,3 +71,4 @@ class ReplayBuffer:
             joint_states=joint_states,
             value_targets=value_targets_tensor,
         )
+
