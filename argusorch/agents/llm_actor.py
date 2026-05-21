@@ -1,4 +1,4 @@
-from typing import Dict, Tuple
+from typing import Dict
 
 import torch
 import torch.nn as nn
@@ -20,15 +20,19 @@ class LLMActor:
         self.generation_config = generation_config
 
     def act(self, obs: AgentObservation) -> AgentAction:
-        """Generate a completion and compute its log-prob in a single forward pass.
+        """Generate a completion and compute its log-prob.
 
-        Previously, act() called generate() then compute_logprob() separately —
-        two full forward passes through the LLM. Now we extract log-probs directly
-        from the generation scores (output_scores=True), halving the VRAM peak
-        and the wall-clock time of the rollout phase.
+        NOTE: output_scores=True + return_dict_in_generate=True causes a
+        device-side CUDA assert inside PEFT's generate() wrapper for 4-bit
+        quantized models.  We therefore use two separate calls:
+          1. generate()        – fast, no_grad, returns text
+          2. compute_logprob() – no_grad forward pass to get log-prob
+        The extra forward is lightweight (no backward graph) and avoids the
+        CUDA assertion entirely.
         """
-        text, logprob = self._generate_with_logprob(obs.prompt)
-        return AgentAction(text=text, logprob=logprob)
+        completion = self.generate(obs.prompt)
+        logprob = self.compute_logprob(obs.prompt, completion)
+        return AgentAction(text=completion, logprob=logprob.item())
 
     def evaluate_action(self, obs: AgentObservation, act: AgentAction) -> PolicyEval:
         """Re-compute log-prob with gradient tracking (PPO update pass)."""
@@ -37,11 +41,10 @@ class LLMActor:
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
-    def _generate_with_logprob(self, prompt: str) -> Tuple[str, float]:
-        """Run model.generate() once and extract both the text and its log-prob."""
+    def generate(self, prompt: str) -> str:
+        """Run model.generate() and return the decoded completion text."""
         device = self.model.device
         inputs = self.tokenizer(prompt, return_tensors="pt").to(device)
-        input_length: int = inputs["input_ids"].shape[1]
 
         gen_kwargs = (
             self.generation_config if isinstance(self.generation_config, dict) else {}
@@ -51,39 +54,20 @@ class LLMActor:
             with torch.amp.autocast(
                 device_type=device.type, enabled=device.type == "cuda"
             ):
-                outputs = self.model.generate(
-                    **inputs,
-                    **gen_kwargs,
-                    return_dict_in_generate=True,
-                    output_scores=True,
-                )
+                outputs = self.model.generate(**inputs, **gen_kwargs)
 
-        completion_ids = outputs.sequences[0][input_length:]
-        completion_text = self.tokenizer.decode(completion_ids, skip_special_tokens=True)
-
-        # Compute token-level log-probs from generation scores.
-        # outputs.scores is a tuple of (vocab_size,) tensors, one per generated token.
-        logprob = 0.0
-        if outputs.scores and len(completion_ids) > 0:
-            # Stack → [T, 1, vocab_size], then gather generated token ids
-            scores = torch.stack(outputs.scores, dim=0)  # [T, 1, V]
-            log_probs = F.log_softmax(scores.float(), dim=-1)
-            n = min(len(completion_ids), scores.shape[0])
-            token_log_probs = log_probs[:n, 0, completion_ids[:n]]
-            logprob = token_log_probs.sum().item()
-            del scores, log_probs, token_log_probs
-
-        return completion_text, logprob
-
-    def generate(self, prompt: str) -> str:
-        """Kept for backwards compatibility; prefer _generate_with_logprob."""
-        text, _ = self._generate_with_logprob(prompt)
-        return text
+        input_length = inputs["input_ids"].shape[1]
+        completion_ids = outputs[0][input_length:]
+        return self.tokenizer.decode(completion_ids, skip_special_tokens=True)
 
     def compute_logprob(
         self, prompt: str, completion: str, no_grad: bool = True
     ) -> torch.Tensor:
-        """Full forward pass to get a differentiable log-prob (used in PPO update)."""
+        """Full forward pass to get a (differentiable) log-prob.
+
+        When no_grad=True  → used during rollout collection (no graph built).
+        When no_grad=False → used during PPO actor update (graph is built).
+        """
         device = self.model.device
 
         full_text = prompt + completion
