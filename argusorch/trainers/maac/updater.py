@@ -37,31 +37,44 @@ class MAACUpdater:
                 obs_list = batch.observations(agent_id)
                 act_list = batch.actions(agent_id)
 
-                # old_logprobs и advantages уже на self.device (созданы в ReplayBuffer)
-                old_lp = batch.old_logprobs(agent_id)  # Tensor on device
-                advs = batch.advantages(agent_id)  # Tensor on device
+                old_lp = batch.old_logprobs(agent_id)
+                advs = batch.advantages(agent_id)
 
-                # Пересчитываем log-prob для каждого шага (последовательно, т.к. LLM)
-                new_lp_list = [
-                    self.actors[agent_id].compute_logprob(obs.prompt, act.text, no_grad=False)
-                    for obs, act in zip(obs_list, act_list)
-                ]
-                new_lp = torch.stack(new_lp_list)  # (T,) on model device
-
-                # Выравниваем устройства перед loss
-                loss_a = self.loss.actor_loss(
-                    new_lp,
-                    old_lp.to(new_lp.device),
-                    advs.to(new_lp.device),
-                )
-
+                n_samples = len(obs_list)
                 self.actor_optimizers[agent_id].zero_grad()
-                loss_a.backward()
+
+                for i in range(n_samples):
+                    # forward pass per sample
+                    single_new_lp = self.actors[agent_id].compute_logprob(
+                        obs_list[i].prompt, act_list[i].text, no_grad=False
+                    )
+
+                    single_old_lp = old_lp[i : i + 1].to(single_new_lp.device)
+                    single_adv = advs[i : i + 1].to(single_new_lp.device)
+
+                    loss_a_item = (
+                        self.loss.actor_loss(
+                            single_new_lp.unsqueeze(0), single_old_lp, single_adv
+                        )
+                        / n_samples
+                    )
+
+                    loss_a_item.backward()
+                    total_actor_losses[agent_id] += loss_a_item.item() * n_samples
+
+                    # free up memory
+                    del single_new_lp, loss_a_item
+
                 torch.nn.utils.clip_grad_norm_(
                     self.actors[agent_id].model.parameters(), max_norm=1.0
                 )
                 self.actor_optimizers[agent_id].step()
-                total_actor_losses[agent_id] += loss_a.item()
+
+            critic_eval = self.critic.evaluate_states(batch.joint_states)
+            loss_c = self.loss.critic_loss(
+                critic_eval.values,
+                batch.value_targets.to(critic_eval.values.device),
+            )
 
             critic_eval = self.critic.evaluate_states(batch.joint_states)
             loss_c = self.loss.critic_loss(
@@ -75,6 +88,9 @@ class MAACUpdater:
             self.critic_optimizer.step()
             total_critic_loss += loss_c.item()
 
+            # clean cache for prevent OOM in next epoch
+            torch.cuda.empty_cache()
+
         metrics["critic_loss"] = total_critic_loss / self.ppo_epochs
         for agent_id in batch.agent_ids():
             metrics[f"actor_loss_{agent_id}"] = (
@@ -82,4 +98,3 @@ class MAACUpdater:
             )
 
         return metrics
-

@@ -24,13 +24,9 @@ class CentralizedCritic(nn.Module):
         else:
             raise ValueError("Не удалось определить hidden_size из конфига модели.")
 
-        # value_head создаётся на CPU; перенос на GPU — через .to(device) снаружи
         self.value_head = nn.Linear(hidden_size, 1, bias=False)
 
-    # ------------------------------------------------------------------
-
     def evaluate_state(self, joint_state: JointState) -> ValuePrediction:
-        """Оценивает одно глобальное состояние (делегирует в батч-метод)."""
         batch_pred = self.evaluate_states([joint_state])
         return ValuePrediction(
             values=batch_pred.values[0],
@@ -38,7 +34,6 @@ class CentralizedCritic(nn.Module):
         )
 
     def evaluate_states(self, joint_states: List[JointState]) -> ValuePrediction:
-        """Батчевая оценка состояний — основной путь для GPU-эффективного inference."""
         prompts = [self.prompt_builder.build(js) for js in joint_states]
 
         if self.tokenizer.pad_token is None:
@@ -55,7 +50,6 @@ class CentralizedCritic(nn.Module):
                 outputs = self.model(**inputs, output_hidden_states=True)
 
         last_hidden = outputs.hidden_states[-1][:, -1, :]
-        # value_head работает в fp32 для численной стабильности
         values = self.value_head(last_hidden.float()).squeeze(-1)  # (batch_size,)
 
         return ValuePrediction(
@@ -63,7 +57,6 @@ class CentralizedCritic(nn.Module):
         )
 
     def forward_value(self, prompt: str) -> float:
-        """Скалярная оценка одного состояния (используется в rollout)."""
         device = next(self.parameters()).device
         inputs = self.tokenizer(prompt, return_tensors="pt").to(device)
 
@@ -76,4 +69,3 @@ class CentralizedCritic(nn.Module):
                 value = self.value_head(last_hidden.float()).item()
 
         return value
-

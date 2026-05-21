@@ -35,7 +35,7 @@ class MAACTrainer:
                 self.replay_buffer.add(traj, targets)
 
                 metrics = env_metrics.copy()
-                
+
                 if self.replay_buffer.ready():
                     train_batch = self.replay_buffer.sample()
                     update_metrics = self.updater.update(train_batch)
@@ -43,4 +43,3 @@ class MAACTrainer:
 
                 self.global_step += 1
                 self.logger.log(metrics, self.global_step)
-

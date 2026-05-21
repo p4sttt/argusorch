@@ -26,8 +26,6 @@ class EnvStep:
 
 @dataclass
 class JointState:
-    """Global state for centralized critic"""
-
     item: Dict[str, Any]
     history: List[Dict[str, Any]]
     turn: int

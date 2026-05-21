@@ -9,15 +9,14 @@ from argusorch.agents.types import PolicyEval
 
 class LLMActor:
     def __init__(
-        self, model: nn.Module, tokenizer: nn.Module, generation_config: Dict[str, object]
+        self,
+        model: nn.Module,
+        tokenizer: nn.Module,
+        generation_config: Dict[str, object],
     ) -> None:
         self.model = model
         self.tokenizer = tokenizer
         self.generation_config = generation_config
-
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
 
     def act(self, obs: AgentObservation) -> AgentAction:
         completion = self.generate(obs.prompt)
@@ -29,10 +28,6 @@ class LLMActor:
         logprobs = self.compute_logprob(obs.prompt, act.text, no_grad=False)
         return PolicyEval(logprobs=logprobs)
 
-    # ------------------------------------------------------------------
-    # Core helpers
-    # ------------------------------------------------------------------
-
     def generate(self, prompt: str) -> str:
         device = self.model.device
         inputs = self.tokenizer(prompt, return_tensors="pt").to(device)
@@ -42,8 +37,9 @@ class LLMActor:
         )
 
         with torch.no_grad():
-            # autocast ускоряет inference на fp16/bf16 GPU
-            with torch.amp.autocast(device_type=device.type, enabled=device.type == "cuda"):
+            with torch.amp.autocast(
+                device_type=device.type, enabled=device.type == "cuda"
+            ):
                 outputs = self.model.generate(**inputs, **gen_kwargs)
 
         input_length = inputs["input_ids"].shape[1]
@@ -53,32 +49,33 @@ class LLMActor:
     def compute_logprob(
         self, prompt: str, completion: str, no_grad: bool = True
     ) -> torch.Tensor:
-        """
-        Возвращает суммарный log-prob completion-токенов как Tensor (не float).
-        Одна токенизация на полный текст; prompt_length вычисляется через
-        отдельный tokenizer-вызов без forward-pass модели.
-        """
         device = self.model.device
 
         full_text = prompt + completion
         full_inputs = self.tokenizer(full_text, return_tensors="pt").to(device)
-        # Длина prompt в токенах — только tokenizer, не forward
+
         prompt_len: int = self.tokenizer(
             prompt, return_tensors="pt", add_special_tokens=False
         )["input_ids"].shape[1]
 
         ctx = torch.no_grad() if no_grad else torch.enable_grad()
         with ctx:
-            with torch.amp.autocast(device_type=device.type, enabled=device.type == "cuda"):
-                outputs = self.model(**full_inputs)
+            with torch.amp.autocast(
+                device_type=device.type, enabled=device.type == "cuda"
+            ):
+                outputs = self.model(**full_inputs, use_cache=False)
                 logits = outputs.logits
 
-        # shift: logit[t] предсказывает token[t+1]
-        shift_logits = logits[0, prompt_len - 1 : -1, :].contiguous()
-        shift_labels = full_inputs["input_ids"][0, prompt_len:].contiguous()
+                shift_logits = logits[0, prompt_len - 1 : -1, :].contiguous()
+                shift_labels = full_inputs["input_ids"][0, prompt_len:].contiguous()
 
-        log_probs = torch.nn.functional.log_softmax(shift_logits, dim=-1)
-        token_log_probs = torch.gather(log_probs, 1, shift_labels.unsqueeze(1)).squeeze(1)
+                log_probs = torch.nn.functional.log_softmax(shift_logits, dim=-1)
+                token_log_probs = torch.gather(
+                    log_probs, 1, shift_labels.unsqueeze(1)
+                ).squeeze(1)
 
-        return token_log_probs.sum()  # Tensor, не float
+                result = token_log_probs.sum()
 
+                del outputs, logits, shift_logits, log_probs
+
+        return result

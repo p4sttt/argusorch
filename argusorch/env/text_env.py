@@ -56,11 +56,6 @@ class MultiAgentTextEnv:
 
 
 class CodeCollabEnv(MultiAgentTextEnv):
-    """
-    Item содержит: {'task': str, 'unit_tests': list}
-    Агенты: agent_0 (Coder), agent_1 (Reviewer/Tester)
-    """
-
     def transition_fn(self, agent_id: str, item: dict, history: list) -> str:
         task = item["task"]
         formatted_history = ""
@@ -74,25 +69,17 @@ class CodeCollabEnv(MultiAgentTextEnv):
             return f"Task: {task}\nHistory:\n{formatted_history}\nYou are the Tester. Provide feedback and test results."
 
     def reward_fn(self, item: dict, actions: dict, history: list) -> float:
-        # Для симуляции: даем награду, если в ответе Тестера есть 'PASSED'
         last_tester_output = actions.get("agent_1", "").text
         if "PASSED" in last_tester_output:
-            return 1.0  # Успех
+            return 1.0
         elif "ERROR" in last_tester_output:
-            return -0.1  # Штраф за ошибку
+            return -0.1
         return 0.0
 
 
 class LongHorizonPlanningEnv(MultiAgentTextEnv):
-    """
-    Item содержит: {'goal': str, 'constraints': list}
-    Максимальное количество ходов (max_turns): 10-15
-    """
-
     def transition_fn(self, agent_id: str, item: dict, history: list) -> str:
         goal = item["goal"]
-        # Показываем только последние 3 шага, чтобы агенты учились
-        # полагаться на сжатое состояние (как в реальных LLM с лимитом контекста)
         last_history = history[-3:]
         context = "\n".join([str(h["actions"]) for h in last_history])
 
@@ -103,12 +90,10 @@ class LongHorizonPlanningEnv(MultiAgentTextEnv):
         )
 
     def reward_fn(self, item: dict, actions: dict, history: list) -> float:
-        # Награда выдается ТОЛЬКО в конце эпизода
         if self.current_turn < self.max_turns - 1:
             return 0.0
 
-        # Симулируем: проверяем длину истории и отсутствие противоречий
         full_text = " ".join([str(h["actions"]) for h in history])
         if len(full_text) > 1000 and "contradiction" not in full_text.lower():
-            return 10.0  # Большая награда за длинный и связный план
+            return 10.0
         return -1.0

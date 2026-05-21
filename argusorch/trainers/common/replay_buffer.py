@@ -47,7 +47,6 @@ class ReplayBuffer:
                     logprobs_dict[a_id].append(trans.action.logprob)
                     adv_dict[a_id].append(trans.advantage)
 
-        # Создаём тензоры сразу на нужном устройстве — устраняет device-mismatch в loss
         for a_id in agent_ids:
             logprobs_dict[a_id] = torch.tensor(
                 logprobs_dict[a_id], dtype=torch.float32, device=self.device
@@ -71,4 +70,3 @@ class ReplayBuffer:
             joint_states=joint_states,
             value_targets=value_targets_tensor,
         )
-

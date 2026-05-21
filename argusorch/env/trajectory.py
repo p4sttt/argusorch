@@ -9,7 +9,7 @@ class Transition:
     obs: AgentObservation
     action: AgentAction
     reward: float
-    value: float  # scalar float — result of critic.forward_value()
+    value: float
     next_obs: AgentObservation
     done: bool
     joint_state: Optional[JointState] = field(default=None)

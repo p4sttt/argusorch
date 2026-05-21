@@ -23,7 +23,6 @@ class RolloutCollector:
         while True:
             joint_state = self.env.joint_state()
             value_pred = self.critic.evaluate_state(joint_state)
-            # Извлекаем скаляр: ValuePrediction.values может быть Tensor или float
             value_scalar: float = (
                 value_pred.values.item()
                 if hasattr(value_pred.values, "item")
