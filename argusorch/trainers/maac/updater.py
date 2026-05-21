@@ -1,10 +1,11 @@
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import torch
 
 from argusorch.trainers.common.types import TrainingBatch
 from argusorch.agents.llm_actor import LLMActor
 from argusorch.agents.critic import CentralizedCritic
+from argusorch.agents.types import ValuePrediction
 from argusorch.trainers.maac.losses import MAACLoss
 
 
@@ -18,6 +19,7 @@ class MAACUpdater:
         loss: MAACLoss,
         ppo_epochs: int = 4,
         device: Optional[torch.device] = None,
+        critic_chunk_size: int = 8,
     ) -> None:
         self.actors = actors
         self.critic = critic
@@ -26,6 +28,27 @@ class MAACUpdater:
         self.loss = loss
         self.ppo_epochs = ppo_epochs
         self.device = device or torch.device("cpu")
+        self.critic_chunk_size = critic_chunk_size
+
+    def _evaluate_critic_chunked(self, joint_states: list) -> ValuePrediction:
+        """Evaluate critic in chunks to avoid OOM with large joint_states batches.
+
+        The LLM backbone runs under torch.no_grad(), so only the value_head
+        (a tiny Linear layer) needs to accumulate a gradient graph. Chunking
+        is therefore perfectly safe: torch.cat merges the small value tensors
+        while preserving the gradient path through value_head.
+        """
+        all_values: List[torch.Tensor] = []
+        first_prompt = ""
+        for i in range(0, len(joint_states), self.critic_chunk_size):
+            chunk = joint_states[i : i + self.critic_chunk_size]
+            pred = self.critic.evaluate_states(chunk)
+            all_values.append(pred.values)
+            if i == 0:
+                first_prompt = pred.critic_prompt
+
+        values = torch.cat(all_values, dim=0) if len(all_values) > 1 else all_values[0]
+        return ValuePrediction(values=values, critic_prompt=first_prompt)
 
     def update(self, batch: TrainingBatch) -> Dict[str, float]:
         metrics: Dict[str, float] = {}
@@ -70,13 +93,8 @@ class MAACUpdater:
                 )
                 self.actor_optimizers[agent_id].step()
 
-            critic_eval = self.critic.evaluate_states(batch.joint_states)
-            loss_c = self.loss.critic_loss(
-                critic_eval.values,
-                batch.value_targets.to(critic_eval.values.device),
-            )
-
-            critic_eval = self.critic.evaluate_states(batch.joint_states)
+            # ── Critic update (single evaluation — bug fix: was called twice) ──
+            critic_eval = self._evaluate_critic_chunked(batch.joint_states)
             loss_c = self.loss.critic_loss(
                 critic_eval.values,
                 batch.value_targets.to(critic_eval.values.device),
@@ -88,8 +106,9 @@ class MAACUpdater:
             self.critic_optimizer.step()
             total_critic_loss += loss_c.item()
 
-            # clean cache for prevent OOM in next epoch
-            torch.cuda.empty_cache()
+            # clean cache to prevent OOM in next epoch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
         metrics["critic_loss"] = total_critic_loss / self.ppo_epochs
         for agent_id in batch.agent_ids():
