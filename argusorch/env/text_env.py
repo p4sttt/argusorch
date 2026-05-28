@@ -2,12 +2,38 @@ from typing import Any, Dict, List
 
 from argusorch.env.types import AgentAction, AgentObservation, EnvStep, JointState
 
-# ── Keywords that indicate code/solution presence ─────────────────────────────
-_CODE_KEYWORDS = ("def ", "return ", "for ", "while ", "if ", "class ", "import ")
-_POSITIVE_WORDS = ("pass", "correct", "work", "ok", "done", "good", "right",
-                   "success", "yes", "solv")
-_NEGATIVE_WORDS = ("error", "fail", "wrong", "bug", "issue", "broken",
-                   "incorrect", "no ", "not ")
+_CODE_KEYWORDS = (
+    "def ",
+    "return ",
+    "for ",
+    "while ",
+    "if ",
+    "class ",
+    "import ",
+)
+_POSITIVE_WORDS = (
+    "pass",
+    "correct",
+    "work",
+    "ok",
+    "done",
+    "good",
+    "right",
+    "success",
+    "yes",
+    "solv",
+)
+_NEGATIVE_WORDS = (
+    "error",
+    "fail",
+    "wrong",
+    "bug",
+    "issue",
+    "broken",
+    "incorrect",
+    "no ",
+    "not ",
+)
 
 
 class MultiAgentTextEnv:
@@ -63,32 +89,10 @@ class MultiAgentTextEnv:
 
 
 class CodeCollabEnv(MultiAgentTextEnv):
-    """Collaborative coding environment with shaped, dense rewards.
-
-    Why the original reward was broken
-    ------------------------------------
-    The original reward required the tester to output the exact uppercase
-    string "PASSED".  Qwen2.5-0.5B with max_new_tokens=32 almost never
-    produces that token sequence from a generic prompt, so reward was
-    perpetually 0 and the agents had no learning signal.
-
-    New design
-    ----------
-    1. Prompts explicitly instruct each agent on the expected output format
-       so the model is more likely to produce the right keywords.
-    2. Reward is shaped and dense:
-         +1.0  tester says PASS / PASSED / OK / correct / works
-         -0.2  tester says ERROR / FAIL / WRONG / BUG
-         +0.2  coder produces a code snippet (contains def/return/for/…)
-         +0.0  otherwise (still avoids zero-reward collapse)
-       This gives a gradient signal at every step even before the model
-       learns to say "PASS", guiding the coder to produce code-looking output.
-    """
 
     def transition_fn(self, agent_id: str, item: dict, history: list) -> str:
         task = item["task"]
 
-        # Only keep the last 2 turns to keep the prompt short (≤ 32 tokens)
         recent = history[-2:] if history else []
         hist_lines = []
         for turn in recent:
@@ -120,18 +124,18 @@ class CodeCollabEnv(MultiAgentTextEnv):
         coder_text = actions.get("agent_0", type("", (), {"text": ""})()).text.lower()
         tester_text = actions.get("agent_1", type("", (), {"text": ""})()).text.lower()
 
-        # ── Primary signal from tester ────────────────────────────────────────
-        # Check positive first (PASS / PASSED / OK / correct / works / yes)
-        if any(w in tester_text for w in ("pass", " ok", "correct", "works",
-                                           "right", "yes", "good", "solv")):
+        if any(
+            w in tester_text
+            for w in ("pass", " ok", "correct", "works", "right", "yes", "good", "solv")
+        ):
             return 1.0
 
-        # Negative tester signal (ERROR / FAIL / WRONG / BUG / NO)
-        if any(w in tester_text for w in ("error", "fail", "wrong", "bug",
-                                           "broken", "no ", "not ")):
+        if any(
+            w in tester_text
+            for w in ("error", "fail", "wrong", "bug", "broken", "no ", "not ")
+        ):
             return -0.2
 
-        # ── Shaped reward: encourage coder to produce code ────────────────────
         if any(kw in coder_text for kw in _CODE_KEYWORDS):
             return 0.2
 
@@ -139,34 +143,13 @@ class CodeCollabEnv(MultiAgentTextEnv):
 
 
 class LongHorizonPlanningEnv(MultiAgentTextEnv):
-    """Long-horizon planning environment with dense intermediate rewards.
-
-    Why the original reward was broken
-    ------------------------------------
-    Reward was 0 on all turns except the last, and only +10 if the joined
-    history text exceeded 1000 characters (easily satisfied) and had no
-    "contradiction".  With max_new_tokens=32 per agent, 15 turns × 2 agents
-    = 30 responses × ~20 chars = ~600 chars total, so the length threshold
-    was almost never reached, giving reward=-1 always.
-
-    New design
-    ----------
-    - Small per-step reward for substantive responses (>10 non-space chars).
-    - Per-step penalty for empty/gibberish outputs.
-    - Final turn: larger positive reward for coherent, long-enough plan;
-      coherence is judged by absence of "contradiction" and a lower length
-      threshold matched to actual output size.
-    """
-
-    # Minimum total chars across all responses for the plan to be "substantial"
-    _MIN_PLAN_CHARS = 300   # was 1000 — unreachable with short generations
+    _MIN_PLAN_CHARS = 300
 
     def transition_fn(self, agent_id: str, item: dict, history: list) -> str:
         goal = item["goal"]
         constraints = item.get("constraints", [])
         constr_str = "; ".join(constraints) if constraints else "none"
 
-        # Keep only last 3 turns to bound prompt length
         recent = history[-3:]
         ctx_lines = []
         for h in recent:
@@ -186,19 +169,17 @@ class LongHorizonPlanningEnv(MultiAgentTextEnv):
     def reward_fn(self, item: dict, actions: dict, history: list) -> float:
         is_final = self.current_turn >= self.max_turns - 1
 
-        # Per-step shaped reward: any meaningful output is better than silence
         step_reward = 0.0
         for act in actions.values():
             text = act.text.strip()
             if len(text) > 10:
-                step_reward += 0.1   # each agent gets 0.1 for non-trivial output
+                step_reward += 0.1
             else:
-                step_reward -= 0.05  # penalise empty/tiny outputs
+                step_reward -= 0.05
 
         if not is_final:
             return step_reward
 
-        # ── Final-turn bonus ───────────────────────────────────────────────────
         full_text = " ".join(str(h["actions"]) for h in history)
         no_contradiction = "contradiction" not in full_text.lower()
         plan_is_long = len(full_text) >= self._MIN_PLAN_CHARS
@@ -206,6 +187,6 @@ class LongHorizonPlanningEnv(MultiAgentTextEnv):
         if plan_is_long and no_contradiction:
             return step_reward + 5.0
         elif no_contradiction:
-            return step_reward + 1.0   # partial credit for coherent but short plan
+            return step_reward + 1.0
         else:
-            return step_reward - 1.0   # contradiction detected
+            return step_reward - 1.0

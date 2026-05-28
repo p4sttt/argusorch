@@ -20,29 +20,15 @@ class LLMActor:
         self.generation_config = generation_config
 
     def act(self, obs: AgentObservation) -> AgentAction:
-        """Generate a completion and compute its log-prob.
-
-        NOTE: output_scores=True + return_dict_in_generate=True causes a
-        device-side CUDA assert inside PEFT's generate() wrapper for 4-bit
-        quantized models.  We therefore use two separate calls:
-          1. generate()        – fast, no_grad, returns text
-          2. compute_logprob() – no_grad forward pass to get log-prob
-        The extra forward is lightweight (no backward graph) and avoids the
-        CUDA assertion entirely.
-        """
         completion = self.generate(obs.prompt)
         logprob = self.compute_logprob(obs.prompt, completion)
         return AgentAction(text=completion, logprob=logprob.item())
 
     def evaluate_action(self, obs: AgentObservation, act: AgentAction) -> PolicyEval:
-        """Re-compute log-prob with gradient tracking (PPO update pass)."""
         logprobs = self.compute_logprob(obs.prompt, act.text, no_grad=False)
         return PolicyEval(logprobs=logprobs)
 
-    # ── Internal helpers ──────────────────────────────────────────────────────
-
     def generate(self, prompt: str) -> str:
-        """Run model.generate() and return the decoded completion text."""
         device = self.model.device
         inputs = self.tokenizer(prompt, return_tensors="pt").to(device)
 
@@ -63,11 +49,6 @@ class LLMActor:
     def compute_logprob(
         self, prompt: str, completion: str, no_grad: bool = True
     ) -> torch.Tensor:
-        """Full forward pass to get a (differentiable) log-prob.
-
-        When no_grad=True  → used during rollout collection (no graph built).
-        When no_grad=False → used during PPO actor update (graph is built).
-        """
         device = self.model.device
 
         full_text = prompt + completion

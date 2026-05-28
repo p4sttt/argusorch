@@ -31,13 +31,6 @@ class MAACUpdater:
         self.critic_chunk_size = critic_chunk_size
 
     def _evaluate_critic_chunked(self, joint_states: list) -> ValuePrediction:
-        """Evaluate critic in chunks to avoid OOM with large joint_states batches.
-
-        The LLM backbone runs under torch.no_grad(), so only the value_head
-        (a tiny Linear layer) needs to accumulate a gradient graph. Chunking
-        is therefore perfectly safe: torch.cat merges the small value tensors
-        while preserving the gradient path through value_head.
-        """
         all_values: List[torch.Tensor] = []
         first_prompt = ""
         for i in range(0, len(joint_states), self.critic_chunk_size):
@@ -93,7 +86,6 @@ class MAACUpdater:
                 )
                 self.actor_optimizers[agent_id].step()
 
-            # ── Critic update (single evaluation — bug fix: was called twice) ──
             critic_eval = self._evaluate_critic_chunked(batch.joint_states)
             loss_c = self.loss.critic_loss(
                 critic_eval.values,

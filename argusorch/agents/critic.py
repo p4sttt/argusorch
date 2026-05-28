@@ -22,7 +22,7 @@ class CentralizedCritic(nn.Module):
         elif hasattr(model.config, "n_embd"):
             hidden_size = model.config.n_embd
         else:
-            raise ValueError("Не удалось определить hidden_size из конфига модели.")
+            raise ValueError("Failed to determine model's hidden_size from config")
 
         self.value_head = nn.Linear(hidden_size, 1, bias=False)
 
