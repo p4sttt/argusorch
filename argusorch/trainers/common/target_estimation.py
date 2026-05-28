@@ -16,10 +16,11 @@ class TD0TargetEstimator(TargetEstimator):
     def compute(self, trajectory: MultiAgentTrajectory) -> MultiAgentTrajectory:
         for agent_traj in trajectory.by_agent():
             for t, transition in enumerate(agent_traj):
+                r = transition.per_agent_reward
                 if transition.done:
-                    target = transition.reward
+                    target = r
                 else:
-                    target = transition.reward + self.gamma * agent_traj[t + 1].value
+                    target = r + self.gamma * agent_traj[t + 1].value
 
                 transition.value_target = target
                 transition.advantage = target - transition.value
@@ -38,9 +39,10 @@ class GAEEstimator(TargetEstimator):
 
             for t in reversed(range(len(agent_traj))):
                 transition = agent_traj[t]
+                r = transition.per_agent_reward
                 next_value = 0.0 if transition.done else agent_traj[t + 1].value
 
-                delta = transition.reward + self.gamma * next_value - transition.value
+                delta = r + self.gamma * next_value - transition.value
 
                 gae = delta + self.gamma * self.lambda_ * gae
 
@@ -60,11 +62,12 @@ class TDLambdaEstimator(TargetEstimator):
             g_lambda = 0.0
             for t in reversed(range(len(agent_traj))):
                 transition = agent_traj[t]
+                r = transition.per_agent_reward
                 if transition.done:
-                    g_lambda = transition.reward
+                    g_lambda = r
                 else:
                     next_value = agent_traj[t + 1].value
-                    g_lambda = transition.reward + self.gamma * (
+                    g_lambda = r + self.gamma * (
                         (1 - self.lambda_) * next_value + self.lambda_ * g_lambda
                     )
 

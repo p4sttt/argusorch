@@ -37,12 +37,24 @@ class RolloutCollector:
             total_reward += step.reward
             steps_count += 1
 
+            # On terminal steps next_observations is an empty dict; build
+            # placeholder observations so Transition.next_obs is always valid.
+            next_obs_for_traj = step.next_observations
+            if step.done and not next_obs_for_traj:
+                from argusorch.env.types import AgentObservation as _Obs
+
+                next_obs_for_traj = {
+                    obs.agent_id: _Obs(agent_id=obs.agent_id, prompt="")
+                    for obs in observations.values()
+                }
+
             trajectory.add(
                 observations=observations,
                 actions=actions,
                 reward=step.reward,
+                per_agent_rewards=step.per_agent_rewards,
                 value=value_scalar,
-                next_observations=step.next_observations,
+                next_observations=next_obs_for_traj,
                 done=step.done,
                 joint_state=joint_state,
             )

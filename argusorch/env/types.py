@@ -21,6 +21,7 @@ class EnvStep:
     next_observations: Dict[str, AgentObservation]
     reward: float
     done: bool
+    per_agent_rewards: Dict[str, float] = field(default_factory=dict)
     info: Dict[str, Any] = field(default_factory=dict)
 
 

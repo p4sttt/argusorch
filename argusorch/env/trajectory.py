@@ -9,6 +9,7 @@ class Transition:
     obs: AgentObservation
     action: AgentAction
     reward: float
+    per_agent_reward: float
     value: float
     next_obs: AgentObservation
     done: bool
@@ -27,6 +28,7 @@ class MultiAgentTrajectory:
         observations: Dict[str, AgentObservation],
         actions: Dict[str, AgentAction],
         reward: float,
+        per_agent_rewards: Dict[str, float],
         value: float,
         next_observations: Dict[str, AgentObservation],
         done: bool,
@@ -36,10 +38,13 @@ class MultiAgentTrajectory:
             if agent_id not in self._agent_trajectories:
                 self._agent_trajectories[agent_id] = []
 
+            agent_reward = per_agent_rewards.get(agent_id, reward)
+
             transition = Transition(
                 obs=obs,
                 action=actions[agent_id],
                 reward=reward,
+                per_agent_reward=agent_reward,
                 value=value,
                 next_obs=next_observations[agent_id],
                 done=done,
